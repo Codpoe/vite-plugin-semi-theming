@@ -20,6 +20,7 @@
     "dist"
   ],
   "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "prepare": "husky install",
     "dev": "tsc -w",
