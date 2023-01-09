@@ -3,7 +3,7 @@ import path from 'path';
 import { platform } from 'os';
 import { pathToFileURL } from 'url';
 import { createRequire } from 'module';
-import type { Plugin, ResolvedConfig } from 'vite';
+import type { Plugin } from 'vite';
 
 const _require = createRequire(import.meta.url);
 const isWindows = platform() === 'win32';
@@ -18,14 +18,10 @@ export interface SemiThemingOptions {
 export function semiTheming({ theme, ...options }: SemiThemingOptions): Plugin {
   const include = options.include && normalizePath(options.include);
   const variables = convertMapToString(options.variables || {});
-  let viteConfig: ResolvedConfig;
 
   return {
     name: 'semi-theme',
     enforce: 'post',
-    configResolved(config) {
-      viteConfig = config;
-    },
     async load(id) {
       const filePath = normalizePath(id);
 
@@ -34,6 +30,7 @@ export function semiTheming({ theme, ...options }: SemiThemingOptions): Plugin {
         /@douyinfe\/semi-(ui|icons|foundation)\/lib\/.+\.css$/.test(filePath)
       ) {
         const scssFilePath = filePath.replace(/\.css$/, '.scss');
+        const resolveCssImport = createCssImportResolver(scssFilePath);
         const { default: sass } = await import('sass');
 
         return sass.compileString(
@@ -47,40 +44,7 @@ export function semiTheming({ theme, ...options }: SemiThemingOptions): Plugin {
             importers: [
               {
                 findFileUrl(url) {
-                  if (url.startsWith('~')) {
-                    // Resolve theme scss from root node_modules
-                    if (theme && url.startsWith(`~${theme}`)) {
-                      return pathToFileURL(
-                        path.resolve(
-                          viteConfig.root,
-                          'node_modules',
-                          url.substring(1)
-                        )
-                      );
-                    }
-
-                    return pathToFileURL(
-                      path.resolve(
-                        scssFilePath.substring(
-                          0,
-                          scssFilePath.lastIndexOf('/node_modules/') +
-                            '/node_modules/'.length
-                        ),
-                        url.substring(1)
-                      )
-                    );
-                  }
-
-                  const filePath = path.resolve(
-                    path.dirname(scssFilePath),
-                    url
-                  );
-
-                  if (existsSync(filePath)) {
-                    return pathToFileURL(filePath);
-                  }
-
-                  return null;
+                  return resolveCssImport(url);
                 },
               },
             ],
@@ -174,4 +138,28 @@ function convertMapToString(map: Record<string, string | number>) {
 
 function normalizePath(p: string) {
   return path.posix.normalize(isWindows ? p.replace(/\\/g, '/') : p);
+}
+
+function createCssImportResolver(importer: string) {
+  const _require = createRequire(importer);
+
+  return (id: string) => {
+    if (id.startsWith('~')) {
+      const resolved = _require.resolve(id.substring(1));
+
+      if (existsSync(resolved)) {
+        return pathToFileURL(resolved);
+      }
+
+      return null;
+    }
+
+    const filePath = path.resolve(path.dirname(importer), id);
+
+    if (existsSync(filePath)) {
+      return pathToFileURL(filePath);
+    }
+
+    return null;
+  };
 }
